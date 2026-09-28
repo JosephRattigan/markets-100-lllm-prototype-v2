@@ -2832,6 +2832,30 @@ function showAllmCopyConfirm(text, btn){
   });
 }
 
+/* Copying by any route other than the icon under an answer — Cmd/Ctrl+C,
+   right-click → Copy, the browser's Edit menu, a long-press menu — fires the
+   same native "copy" event. Inside the ALLM sheet we hold that copy back,
+   ask the same "Do you want to copy?" question, and only write the captured
+   selection to the clipboard once the person confirms. The prompt input is
+   left alone: copying your own typed text isn't taking a model response
+   anywhere. */
+let allmBypassCopyGuard = false;
+document.addEventListener('copy', (e)=>{
+  if (allmBypassCopyGuard) return;
+  const sheet = document.getElementById('allmSheet');
+  if (!sheet || !sheet.classList.contains('open')) return;
+  const input = document.getElementById('allmInput');
+  if (input && document.activeElement === input) return;
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed || !sel.rangeCount) return;
+  const anchor = sel.anchorNode && (sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement);
+  if (!anchor || !sheet.contains(anchor)) return;
+  const text = sel.toString();
+  if (!text.trim()) return;
+  e.preventDefault();
+  showAllmCopyConfirm(text, null);
+});
+
 function showAllmShareConfirm(text){
   showAllmConfirmAlert({
     title: 'Do you want to share?',
@@ -2847,10 +2871,25 @@ function copyAllmText(text, btn){
     btn.classList.add('done');
     setTimeout(()=>btn.classList.remove('done'), 1200);
   };
-  if (navigator.clipboard && navigator.clipboard.writeText){
-    navigator.clipboard.writeText(text).then(done).catch(done);
-  } else {
+  // Fallback for contexts where the async clipboard API is blocked (e.g.
+  // sandboxed frames). The bypass flag stops our own copy guard from
+  // re-triggering the confirm alert on this programmatic copy.
+  const legacyCopy = ()=>{
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;top:-1000px;opacity:0;';
+    document.body.appendChild(ta);
+    ta.select();
+    allmBypassCopyGuard = true;
+    try { document.execCommand('copy'); } catch(_){}
+    allmBypassCopyGuard = false;
+    document.body.removeChild(ta);
     done();
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(done).catch(legacyCopy);
+  } else {
+    legacyCopy();
   }
 }
 
